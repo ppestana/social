@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+
+# Docker
+postgres/data/
+
+# Sistema
+.DS_Store
+*.log
