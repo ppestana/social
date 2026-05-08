@@ -194,31 +194,6 @@ def get_recursos(
         "recursos": [dict(r) for r in rows]
     }
 
-# ── Recurso por ID ────────────────────────────────────────────
-@app.get("/api/v1/recursos/{recurso_id}")
-def get_recurso(recurso_id: str, db: Session = Depends(get_db)):
-    result = db.execute(text("""
-        SELECT
-            r.*,
-            ST_X(r.geom) as longitude,
-            ST_Y(r.geom) as latitude,
-            c.slug as categoria_slug,
-            c.nome_pt as categoria_nome,
-            c.icone as categoria_icone,
-            c.cor_hex as categoria_cor,
-            m.nome as municipio_nome
-        FROM recurso r
-        LEFT JOIN categoria c ON r.categoria_id = c.id
-        LEFT JOIN municipio m ON r.municipio_id = m.id
-        WHERE r.id = :id AND r.activo = TRUE
-    """), {"id": recurso_id})
-
-    row = result.mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Recurso não encontrado")
-    return dict(row)
-
-# ── Recursos próximos (geoespacial) ───────────────────────────
 @app.get("/api/v1/recursos/proximos")
 def get_proximos(
     db: Session = Depends(get_db),
@@ -276,6 +251,31 @@ def get_proximos(
 
     rows = result.mappings().all()
     return {"recursos": [dict(r) for r in rows]}
+
+
+# ── Recurso por ID ────────────────────────────────────────────
+@app.get("/api/v1/recursos/{recurso_id}")
+def get_recurso(recurso_id: str, db: Session = Depends(get_db)):
+    result = db.execute(text("""
+        SELECT
+            r.*,
+            ST_X(r.geom) as longitude,
+            ST_Y(r.geom) as latitude,
+            c.slug as categoria_slug,
+            c.nome_pt as categoria_nome,
+            c.icone as categoria_icone,
+            c.cor_hex as categoria_cor,
+            m.nome as municipio_nome
+        FROM recurso r
+        LEFT JOIN categoria c ON r.categoria_id = c.id
+        LEFT JOIN municipio m ON r.municipio_id = m.id
+        WHERE r.id = :id AND r.activo = TRUE
+    """), {"id": recurso_id})
+
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Recurso não encontrado")
+    return dict(row)
 
 # ── Mapa GeoJSON ──────────────────────────────────────────────
 @app.get("/api/v1/recursos/mapa")
@@ -356,20 +356,20 @@ def pesquisa(
             c.slug as categoria_slug,
             c.nome_pt as categoria_nome,
             c.icone as categoria_icone,
-            m.nome as municipio_nome,
-            ts_rank(
-                to_tsvector('portuguese', r.nome || ' ' || COALESCE(r.descricao, '')),
-                plainto_tsquery('portuguese', :q)
-            ) as relevancia
+            m.nome as municipio_nome
         FROM recurso r
         LEFT JOIN categoria c ON r.categoria_id = c.id
         LEFT JOIN municipio m ON r.municipio_id = m.id
         WHERE r.activo = TRUE
-          AND to_tsvector('portuguese', r.nome || ' ' || COALESCE(r.descricao, ''))
-              @@ plainto_tsquery('portuguese', :q)
-        ORDER BY relevancia DESC
+          AND (
+              unaccent(r.nome) ILIKE unaccent(:q_like)
+              OR unaccent(r.descricao) ILIKE unaccent(:q_like)
+              OR unaccent(r.organizacao) ILIKE unaccent(:q_like)
+              OR unaccent(c.nome_pt) ILIKE unaccent(:q_like)
+          )
+        ORDER BY r.urgente DESC, r.verificado DESC, r.nome ASC
         LIMIT 20
-    """), {"q": q})
+    """), {"q_like": f"%{q}%"})
 
     rows = result.mappings().all()
     return {"query": q, "resultados": [dict(r) for r in rows]}
